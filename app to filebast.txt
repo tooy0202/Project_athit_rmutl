@@ -1,0 +1,173 @@
+import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:logger/logger.dart';
+
+// Logger instance
+final logger = Logger();
+
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  logger.i("Handling a background message: ${message.messageId}");
+  // Handle your background message here
+}
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+
+  // Initialize Firebase Messaging
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  runApp(MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      home: HomeScreen(),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
+
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Handle initial message when app is opened from terminated state
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((RemoteMessage? message) {
+      if (message != null) {
+        _handleMessage(message);
+        _showNotification(message); // Show notification for initial message
+      }
+    });
+
+    // Handle incoming messages while app is in foreground
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      logger.i('Received a message while in the foreground!');
+      _handleMessage(message);
+      _showNotification(message); // Show notification for incoming message
+    });
+
+    // Handle when a message is clicked and the app is opened from background
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      logger.i('Message clicked!');
+      _handleMessage(message);
+      _navigateToScreen(message); // Navigate to screen when message clicked
+    });
+  }
+
+  void _handleMessage(RemoteMessage message) {
+    logger.i('Handling message: ${message.messageId}');
+    logger.i('Message data: ${message.data}'); // Log message data
+    logger.i(
+        'Notification: ${message.notification?.title}'); // Log notification title (if exists)
+
+    // Handle your message data here based on your app's logic
+  }
+
+  void _showNotification(RemoteMessage message) {
+    // Show notification in Snackbar or other UI components
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('New update: ${message.data['update']}'),
+        action: SnackBarAction(
+          label: 'View',
+          onPressed: () {
+            // Handle action when notification is clicked
+            _navigateToScreen(message);
+          },
+        ),
+      ),
+    );
+  }
+
+  void _navigateToScreen(RemoteMessage message) {
+    // Navigate to a screen based on notification data
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => DetailsScreen(message: message),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Firestore Example'),
+      ),
+      body: StreamBuilder(
+        stream: _firestore.collection('users').snapshots(),
+        builder: (context, AsyncSnapshot<QuerySnapshot> snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+
+          var documents = snapshot.data!.docs; // Ensure snapshot has data
+          return ListView.builder(
+            itemCount: documents.length,
+            itemBuilder: (context, index) {
+              return ListTile(
+                title: Text(documents[index]['age'].toString()),
+                subtitle: Text(documents[index]['email'].toString()),
+                trailing: Text(documents[index]['name'].toString()),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class DetailsScreen extends StatelessWidget {
+  final RemoteMessage message;
+
+  const DetailsScreen({Key? key, required this.message}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Details'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              'New Update Received!',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+            ),
+            SizedBox(height: 20),
+            Text(
+              'Update: ${message.data['update']}',
+              style: TextStyle(fontSize: 18),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
